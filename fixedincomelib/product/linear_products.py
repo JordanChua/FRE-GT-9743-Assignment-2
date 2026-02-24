@@ -268,7 +268,7 @@ class InterestRateStream(ProductPortfolio):
         notional: float,
         currency: Currency,
         accrual_basis: AccrualBasis,
-        buseinss_day_convention: BusinessDayConvention,
+        business_day_convention: BusinessDayConvention,
         holiday_convention: HolidayConvention,
         float_index: Optional[str] = None,
         fixed_rate: Optional[float] = None,
@@ -293,10 +293,48 @@ class InterestRateStream(ProductPortfolio):
 
         ### TODO
         # use utilities functions to make schedule
-
+        schedule = make_schedule(start_date = effective_date, 
+                                 end_date = termination_date, 
+                                 accrual_period=accrual_period,
+                                 holiday_convention=holiday_convention,
+                                 business_day_convention=business_day_convention,
+                                 accrual_basis=accrual_basis,
+                                 rule=rule,
+                                 end_of_month=end_of_month,
+                                 fix_in_arrear=fixing_in_arrear,
+                                 payment_offset=payment_offset,
+                                 payment_business_day_convention=payment_business_day_convention,
+                                 payment_holiday_convention=payment_holiday_convention)
+        
         products, weights = [], []
 
-        ### TODO
+        # As per the prompt we can build an interest rate stream either as 
+        # combination of overnight index cashflow or FixedAccrued
+        for _ , row in schedule.iterrows():
+            effective_date = row['StartDate']
+            term_or_termination_date = row['EndDate']
+            payment_date = row['PaymentDate']
+            if float_index: 
+                product = ProductOvernightIndexCashflow(effective_date=effective_date,
+                                                        term_or_termination_date=TermOrTerminationDate(term_or_termination_date),
+                                                        on_index=float_index,
+                                                        compounding_method=ois_compounding,
+                                                        spread=ois_spread,
+                                                        notional=notional,
+                                                        payment_date=payment_date)
+                products.append(product)
+                weights.append(1.0)
+            if fixed_rate:
+                product = ProductFixedAccrued(effective_date=effective_date,
+                                              termination_date=term_or_termination_date,
+                                              currency=currency, 
+                                              notional=notional,
+                                              accrual_basis=accrual_basis,
+                                              payment_date=payment_date,
+                                              business_day_convention=business_day_convention,
+                                              holiday_convention=holiday_convention)
+                products.append(product)
+                weights.append(fixed_rate)
 
         super().__init__(products, weights)
 
@@ -370,14 +408,40 @@ class ProductRFRSwap(Product):
             else floating_leg_accrual_period
         )
         self.compounding_method_ = compounding_method
-        fixed_leg_sign = 1.0 if self.pay_or_rec_ == PayOrReceive.PAY else -1.0
-
+        fixed_leg_sign = -1.0 if self.pay_or_rec_ == PayOrReceive.PAY else 1.0
+        float_leg_sign = fixed_leg_sign * -1.0
         # floating leg
         ### TODO
+        self.floating_leg_ = InterestRateStream(effective_date=self.first_date_,
+                                                termination_date=self.termination_date_,
+                                                accrual_period=self.floating_leg_accrual_period_,
+                                                notional = float_leg_sign * self.notional_,
+                                                currency = self.currency_,
+                                                accrual_basis=self.accrual_basis_,
+                                                business_day_convention=self.pay_business_day_convention_,
+                                                holiday_convention=self.pay_holiday_convention_,
+                                                float_index = self.on_index_str_,
+                                                ois_compounding=self.compounding_method_,
+                                                ois_spread=self.spread_,
+                                                payment_offset=self.pay_offset_,
+                                                payment_business_day_convention=self.pay_business_day_convention_,
+                                                payment_holiday_convention=self.pay_holiday_convention_)
 
         # fixed leg
         ### TODO
-
+        self.fixed_leg_ = InterestRateStream(effective_date= self.effective_date_,
+                                            termination_date=self.termination_date_,
+                                            accrual_period=self.accrual_period_,
+                                            notional=fixed_leg_sign * self.notional_,
+                                            currency=self.currency_,
+                                            accrual_basis=self.accrual_basis_,
+                                            business_day_convention=self.pay_business_day_convention_,
+                                            holiday_convention=self.pay_holiday_convention_,
+                                            fixed_rate=self.fixed_rate_,
+                                            payment_offset=self.pay_offset_,
+                                            payment_business_day_convention=self.pay_business_day_convention_,
+                                            payment_holiday_convention=self.pay_holiday_convention_)
+        
     def floating_leg_cash_flow(self, i: int) -> Product:
         assert 0 <= i < self.floating_leg_.num_cashflows()
         return self.floating_leg_.element(i)

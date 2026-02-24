@@ -4,7 +4,7 @@ import logging
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Self, Any
 from abc import ABC, abstractmethod
 from ..utilities import get_config_folder, Registry
 from .definitions import OptionPayoff
@@ -166,5 +166,25 @@ class OptionStrategy:
 
 ### Option Strategy Registry
 class OptionStrategyRegistry(Registry):
+    def __new__(cls) -> Self:
+        if cls._instance is None:
+            obj = super().__new__(cls, 'strategies', 'OptionStrategy')
+            obj._map = {}
+            obj.load_yml_file()
+            cls._instance = obj
+        return cls._instance
+    
+    def load_yml_file(self) -> None: 
+        file_path = os.path.join(get_config_folder(), "strategies.yaml")
 
-### TODO
+        with open(file_path, "r") as f:
+            data = yaml.safe_load(f)
+        for k,v in data.items():
+            self._map[k] = OptionStrategy.createFromDict(k, v)
+
+    def register(self, key : Any, value : Any) -> None:
+        assert isinstance(value, dict), "Input must be a dictionary"
+        self._map[key] = OptionStrategy.createFromDict(key, value)
+
+    def list_registry_keys(self):
+        return list(self._map.keys())
